@@ -2,6 +2,7 @@ use std::sync::Mutex;
 use tokio::sync::mpsc;
 
 use actix_web::{
+    middleware::Logger,
     web::{self, Json},
     App, HttpResponse, HttpServer, Responder,
 };
@@ -24,6 +25,8 @@ const INDEX_JS: &str = include_str!("./ui/index.js");
 const INDEX_CSS: &str = include_str!("./ui/index.css");
 const COMMON_JS: &str = include_str!("./ui/common.js");
 const FORM_JS: &str = include_str!("./ui/form.js");
+const FAVICON: &[u8] = include_bytes!("./ui/favicon.ico");
+const ANDROID_FAVICON: &[u8] = include_bytes!("./ui/android-chrome-192x192.png");
 
 #[actix_web::main]
 async fn main() -> Result<(), HomeRadioError> {
@@ -34,16 +37,21 @@ async fn main() -> Result<(), HomeRadioError> {
     std::env::set_var("RUST_LOG", "debug");
     env_logger::init();
 
-    let (send, rcv) = mpsc::channel(1);
     let fb = FileBackend::new(media_file_path).await?;
     let vol = fb.get_volume().await?;
-    media_service::start_media_thread(rcv, VLCMediaServiceFactory {}, vol);
+    // media_service::start_media_thread(rcv, VLCMediaServiceFactory {}, vol);
     let backend = web::Data::new(Mutex::new(Box::new(fb) as Box<dyn Backend + Send>));
 
     HttpServer::new(move || {
-        let srvc = RemoteMediaService::new(send.clone());
+        let srvc = RemoteMediaService::new_with_auth(
+            "localhost".into(),
+            "8090".into(),
+            "".into(),
+            "foo".into(),
+        );
 
         App::new()
+            //.wrap(Logger::new("%a %{User-Agent}i"))
             .app_data(web::Data::new(srvc))
             .app_data(backend.clone())
             // ui routes
@@ -54,6 +62,8 @@ async fn main() -> Result<(), HomeRadioError> {
             .route("common.js", web::get().to(common_js))
             .route("form.js", web::get().to(form_js))
             .route("add-media-form.html", web::get().to(media_form_html))
+            .route("favicon.ico", web::get().to(favicon))
+            .route("android-chrome-192x192.png", web::get().to(android_favicon))
             // resource routes
             .route("/media", web::get().to(get_media_sources))
             .route("/media", web::put().to(add_media_source))
@@ -96,11 +106,15 @@ async fn get_media_sources(backend: web::Data<Mutex<Box<dyn Backend + Send>>>) -
 }
 
 async fn index_css() -> impl Responder {
-    HttpResponse::Ok()
-        .content_type("text/css")
-        .body(INDEX_CSS)
+    HttpResponse::Ok().content_type("text/css").body(INDEX_CSS)
 }
 
+async fn favicon() -> impl Responder {
+    HttpResponse::Ok().body(FAVICON)
+}
+async fn android_favicon() -> impl Responder {
+    HttpResponse::Ok().body(ANDROID_FAVICON)
+}
 async fn media_form_html() -> impl Responder {
     HttpResponse::Ok().content_type("text/html").body(FORM_HTML)
 }
@@ -173,7 +187,7 @@ async fn start_playback(
     let result = srvc.play(&body, vol).await;
 
     if let Err(e) = result {
-        error!("error starting playback of url {}", &body);
+        error!("error starting playback of url {}: {}", &body, e);
         HttpResponse::InternalServerError().body(e.to_string())
     } else {
         HttpResponse::Ok().into()

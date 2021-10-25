@@ -5,16 +5,13 @@
     <script src="common.js"></script>
     <script src="index.js"></script>
     <link rel="stylesheet" href="index.css">
+    <link rel="icon" sizes="192x192" href="/android-chrome-192x192.png">
 </head>
 
 <body>
     <div class="grid">
         <div class="container">
             <select class="item" id="radio_links">
-                <option value="https://s1-webradio.antenne.de/antenne/stream">Antenne Bayern</option>
-                <option
-                    value="http://br-edge-3003-dus-ts-cdn.cast.addradio.de/br/br3/live/mp3/128/stream.mp3?_art=dj0yJmlwPTQ2Ljg5LjExMS45OCZpZD1pY3NjeGwtZHNxZHh3a2xiJnQ9MTYzNTExMTM1NyZzPTc4NjZmMjljIzAzZjFhMjJjNDBjZTYyNTc4NTk4NGRkMjZjNDc0ZGYw">
-                    Bayern 3</option>
             </select>
 
         </div>
@@ -23,7 +20,7 @@
             <button class="item" onclick="stop()">stop</button>
         </div>
         <div class="container">
-            <input class="item" type="range" id="volume" name="volume" min="0" max="125" value="0">
+            <input class="item" type="range" id="volume" name="volume" min="0" max="256" value="0">
         </div>
     </div>
 </body>

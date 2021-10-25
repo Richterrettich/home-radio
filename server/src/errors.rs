@@ -1,5 +1,7 @@
 use std::{io, num::ParseIntError};
 
+use awc;
+use awc::error::SendRequestError;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -18,5 +20,15 @@ pub enum HomeRadioError {
     #[error("unable to get media stream for url {0}")]
     NoMedia(String),
     #[error("media channel closed")]
-    ChannelClosed
+    ChannelClosed,
+
+    #[error(transparent)]
+    SendRequestError(#[from] SendRequestError),
+    #[error(transparent)]
+    UrlEncodedError(Box<dyn std::error::Error>),
+
+    #[error(transparent)]
+    JsonPayloadError(#[from] awc::error::JsonPayloadError),
+    #[error(transparent)]
+    PayloadError(#[from] awc::error::PayloadError),
 }

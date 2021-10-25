@@ -17,3 +17,5 @@ pub trait MediaService {
     fn get_volume(&self) -> Result<i32, HomeRadioError>;
     fn set_volume(&self, new_vol: u16) -> Result<(), HomeRadioError>;
 }
+
+

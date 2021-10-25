@@ -257,6 +257,33 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cdb031dd78e28731d87d56cc8ffef4a8f36ca26c38fe2de700543e627f8a464a"
 
 [[package]]
+name = "awc"
+version = "3.0.0-beta.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "774d647a23d085bf35c83b6da5a6bd966fdc4af92ffce865befa9f3a8cf73015"
+dependencies = [
+ "actix-codec",
+ "actix-http",
+ "actix-rt",
+ "actix-service",
+ "base64",
+ "bytes",
+ "cfg-if",
+ "cookie",
+ "derive_more",
+ "futures-core",
+ "itoa",
+ "log",
+ "mime",
+ "percent-encoding",
+ "pin-project-lite",
+ "rand",
+ "serde",
+ "serde_json",
+ "serde_urlencoded",
+]
+
+[[package]]
 name = "base-x"
 version = "0.2.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -567,6 +594,7 @@ version = "0.1.0"
 dependencies = [
  "actix-web",
  "async-trait",
+ "awc",
  "env_logger",
  "log",
  "serde",
