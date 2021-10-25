@@ -1,0 +1,31 @@
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <script src="common.js"></script>
+    <script src="index.js"></script>
+    <link rel="stylesheet" href="index.css">
+</head>
+
+<body>
+    <div class="grid">
+        <div class="container">
+            <select class="item" id="radio_links">
+                <option value="https://s1-webradio.antenne.de/antenne/stream">Antenne Bayern</option>
+                <option
+                    value="http://br-edge-3003-dus-ts-cdn.cast.addradio.de/br/br3/live/mp3/128/stream.mp3?_art=dj0yJmlwPTQ2Ljg5LjExMS45OCZpZD1pY3NjeGwtZHNxZHh3a2xiJnQ9MTYzNTExMTM1NyZzPTc4NjZmMjljIzAzZjFhMjJjNDBjZTYyNTc4NTk4NGRkMjZjNDc0ZGYw">
+                    Bayern 3</option>
+            </select>
+
+        </div>
+        <div class="container">
+            <button class="item" onclick="start()">start</button>
+            <button class="item" onclick="stop()">stop</button>
+        </div>
+        <div class="container">
+            <input class="item" type="range" id="volume" name="volume" min="0" max="125" value="0">
+        </div>
+    </div>
+</body>
+
+</html>

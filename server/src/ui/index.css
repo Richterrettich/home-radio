@@ -1,0 +1,28 @@
+.container {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    min-height: 25%;
+    gap: 1%;
+}
+
+.grid {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    gap: 1%
+}
+
+.item {
+    flex-grow: 1;
+    min-width: 25%;
+    min-height: 30%;
+    font-size: 2vw;
+    text-align: center;
+}
+
+@media (hover: none) {
+    .item {
+        font-size: 60px;
+    }
+}
