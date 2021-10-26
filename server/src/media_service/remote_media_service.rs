@@ -1,19 +1,11 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use log::error;
-use tokio::{self, runtime::Builder, sync::mpsc};
+use tokio::{self};
 
 use crate::errors::HomeRadioError;
 
-use super::{MediaService, MediaServiceFactory};
 use awc;
-
-pub enum Message {
-    Play(String, u16, mpsc::Sender<Result<(), HomeRadioError>>),
-    Stop(mpsc::Sender<Result<(), HomeRadioError>>),
-    SetVolume(u16, mpsc::Sender<Result<(), HomeRadioError>>),
-}
 
 #[derive(Clone)]
 pub struct RemoteMediaService {
@@ -23,50 +15,10 @@ pub struct RemoteMediaService {
     client: awc::Client,
 }
 
-// pub fn start_media_thread<T: MediaService, F: MediaServiceFactory<T> + Send + 'static>(
-//     mut receiver: mpsc::Receiver<Message>,
-//     factory: F,
-//     initial_volume: u16,
-// ) {
-//     std::thread::spawn(move || {
-//         let rt = Builder::new_current_thread().enable_all().build().unwrap();
-//         let srvc = factory.create();
-//         let result = srvc.set_volume(initial_volume);
-//         if let Err(e) = result {
-//             error!("unable to set initial volume: {}", e);
-//         }
-//         while let Some(msg) = rt.block_on(receiver.recv()) {
-//             match msg {
-//                 Message::Play(url, volume, result_chan) => {
-//                     let result = srvc.start(&url, volume);
-//                     rt.block_on(result_chan.send(result)).unwrap();
-//                 }
-//                 Message::Stop(result_chan) => rt.block_on(result_chan.send(srvc.stop())).unwrap(),
-//                 Message::SetVolume(new_vol, result_chan) => {
-//                     rt.block_on(result_chan.send(srvc.set_volume(new_vol)))
-//                         .unwrap();
-//                 }
-//             }
-//         }
-//     });
-// }
-
 impl RemoteMediaService {
-    pub fn new(host: String, port: String) -> Self {
-        let client = awc::Client::builder().finish();
-        let base_url = format!("http://{}:{}", host, port);
-
-        RemoteMediaService {
-            host,
-            port,
-            client,
-            base_url,
-        }
-    }
-
-    pub fn new_with_auth(host: String, port: String, user: String, pwd: String) -> Self {
+    pub fn new_with_auth(host: String, port: String, pwd: String) -> Self {
         let client = awc::Client::builder()
-            .basic_auth(user, Some(&pwd[..]))
+            .basic_auth("", Some(&pwd[..]))
             .finish();
         let base_url = format!("http://{}:{}", host, port);
         RemoteMediaService {
@@ -76,24 +28,31 @@ impl RemoteMediaService {
             base_url,
         }
     }
+    async fn remote_command(
+        &self,
+        command: &str,
+        query: &[(&str, &str)],
+    ) -> Result<(), HomeRadioError> {
+        let mut map = HashMap::new();
+
+        for (k, v) in query {
+            map.insert(*k, *v);
+        }
+        map.insert("command", command);
+        self.client
+            .get(format!("{}/requests/status.json", self.base_url))
+            .query(&map)
+            .map_err(|e| HomeRadioError::UrlEncodedError(Box::new(e)))?
+            .send()
+            .await?;
+        Ok(())
+    }
 
     pub async fn play(&self, url: &str, volume: u16) -> Result<(), HomeRadioError> {
-        let mut query = HashMap::new();
-        query.insert("command", "in_play");
-        query.insert("input", url);
-        let (status, response) = tokio::join!(
-            self.get_status(),
-            self.client
-                .get(format!("{}/requests/status.json", self.base_url))
-                .query(&query)
-                .map_err(|e| HomeRadioError::UrlEncodedError(Box::new(e)))?
-                .send()
-        );
-        let state = status?.state;
-
-        let result = response?;
-        dbg!(result);
-
+        self.remote_command("pl_empty", &[]).await?;
+        self.remote_command("in_play", &[("input", url), ("option", "novideo")])
+            .await?;
+        let state = self.get_status().await?.state;
         if &state == "stopped" {
             loop {
                 let status = self.get_status().await?;
@@ -110,7 +69,7 @@ impl RemoteMediaService {
         Ok(())
     }
 
-    async fn get_status(&self) -> Result<VlcStatus, HomeRadioError> {
+    pub async fn get_status(&self) -> Result<VlcStatus, HomeRadioError> {
         let body = self
             .client
             .get(format!("{}/requests/status.json", self.base_url))
@@ -123,6 +82,7 @@ impl RemoteMediaService {
     }
 
     pub async fn stop(&self) -> Result<(), HomeRadioError> {
+        self.remote_command("pl_empty", &[]).await?;
         let mut query = HashMap::new();
         query.insert("command", "pl_stop");
         let result = self

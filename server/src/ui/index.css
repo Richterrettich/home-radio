@@ -21,6 +21,13 @@
     text-align: center;
 }
 
+#volume {
+    -webkit-appearance: none !important;
+    background: blue;
+    height: 7px;
+    border-style: dashed;
+}
+
 @media (hover: none) {
     .item {
         font-size: 60px;

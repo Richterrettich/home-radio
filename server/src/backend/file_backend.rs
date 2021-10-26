@@ -1,19 +1,17 @@
 use std::path::{Path, PathBuf};
 
 use log::info;
-use tokio::fs::{File, OpenOptions};
+use tokio::fs::{self, File, OpenOptions};
 
 use crate::errors::HomeRadioError;
 
-use super::Backend;
-
-use async_trait::async_trait;
 use serde_json;
 use tokio::io::AsyncWriteExt;
 
 pub struct FileBackend {
     media_file_path: PathBuf,
     volume_path: PathBuf,
+    currently_playing_path: PathBuf,
 }
 
 impl FileBackend {
@@ -23,11 +21,17 @@ impl FileBackend {
         tokio::fs::create_dir_all(dir).await?;
         let mut media_sources_file = dir.to_path_buf();
         let mut volume_file_path = media_sources_file.clone();
+        let mut currently_playing_path = media_sources_file.clone();
 
         media_sources_file.push("media-sources.json");
         volume_file_path.push("volume");
+        currently_playing_path.push("currently-playing");
 
-        for i in [&media_sources_file, &volume_file_path] {
+        for i in [
+            &media_sources_file,
+            &volume_file_path,
+            &currently_playing_path,
+        ] {
             info!("checking file {}", &i.to_string_lossy());
             let result = OpenOptions::new()
                 .create_new(true)
@@ -45,17 +49,14 @@ impl FileBackend {
                 }
             }
         }
-
         Ok(FileBackend {
             media_file_path: media_sources_file,
             volume_path: volume_file_path,
+            currently_playing_path,
         })
     }
-}
 
-#[async_trait]
-impl Backend for FileBackend {
-    async fn get_media_sources(
+    pub async fn get_media_sources(
         &self,
     ) -> Result<Vec<super::MediaSource>, crate::errors::HomeRadioError> {
         let content = tokio::fs::read_to_string(&self.media_file_path).await?;
@@ -63,7 +64,7 @@ impl Backend for FileBackend {
         return Ok(result);
     }
 
-    async fn add_media_source(
+    pub async fn add_media_source(
         &self,
         source: super::MediaSource,
     ) -> Result<(), crate::errors::HomeRadioError> {
@@ -84,16 +85,47 @@ impl Backend for FileBackend {
         Ok(())
     }
 
-    async fn set_volume(&self, volume: u16) -> Result<(), crate::errors::HomeRadioError> {
+    pub async fn set_volume(&self, volume: u16) -> Result<(), crate::errors::HomeRadioError> {
         tokio::fs::write(&self.volume_path, volume.to_string()).await?;
         Ok(())
     }
 
-    async fn get_volume(&self) -> Result<u16, crate::errors::HomeRadioError> {
+    pub async fn get_volume(&self) -> Result<u16, crate::errors::HomeRadioError> {
         let raw_vol = tokio::fs::read_to_string(&self.volume_path).await?;
         if raw_vol.is_empty() {
             return Ok(100);
         }
         Ok(raw_vol.parse()?)
+    }
+
+    pub async fn remove_current_media_source(&self) -> Result<(), HomeRadioError> {
+        let result = fs::remove_file(&self.currently_playing_path).await;
+        if let Err(e) = result {
+            match e.kind() {
+                std::io::ErrorKind::NotFound => {}
+                _ => return Err(HomeRadioError::Io(e)),
+            }
+        }
+        Ok(())
+    }
+
+    pub async fn get_current_media_source(&self) -> Result<Option<String>, HomeRadioError> {
+        let result = fs::read_to_string(&self.currently_playing_path).await;
+        if let Ok(url) = result {
+            if url.is_empty() {
+                return Ok(None);
+            }
+            return Ok(Some(url));
+        }
+        let err = result.err().unwrap();
+        match err.kind() {
+            std::io::ErrorKind::NotFound => return Ok(None),
+            _ => return Err(HomeRadioError::Io(err)),
+        }
+    }
+
+    pub async fn set_current_media_source(&self, url: &str) -> Result<(), HomeRadioError> {
+        fs::write(&self.currently_playing_path, &url).await?;
+        Ok(())
     }
 }

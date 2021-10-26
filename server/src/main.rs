@@ -1,8 +1,6 @@
 use std::sync::Mutex;
-use tokio::sync::mpsc;
 
 use actix_web::{
-    middleware::Logger,
     web::{self, Json},
     App, HttpResponse, HttpServer, Responder,
 };
@@ -12,8 +10,8 @@ use errors::HomeRadioError;
 use log::{error, info};
 
 use crate::{
-    backend::{Backend, FileBackend},
-    media_service::{MediaService, RemoteMediaService, VLCMediaServiceFactory},
+    backend::FileBackend,
+    media_service::{MediaService, RemoteMediaService},
 };
 mod backend;
 mod errors;
@@ -38,17 +36,19 @@ async fn main() -> Result<(), HomeRadioError> {
     env_logger::init();
 
     let fb = FileBackend::new(media_file_path).await?;
-    let vol = fb.get_volume().await?;
-    // media_service::start_media_thread(rcv, VLCMediaServiceFactory {}, vol);
-    let backend = web::Data::new(Mutex::new(Box::new(fb) as Box<dyn Backend + Send>));
+    let current_src = fb.get_current_media_source().await?;
+    if let Some(current) = current_src {
+        let vol = fb.get_volume().await?;
+
+        let srvc =
+            RemoteMediaService::new_with_auth("localhost".into(), "8090".into(), "foo".into());
+        srvc.play(&current, vol).await?;
+    }
+    let backend = web::Data::new(Mutex::new(fb));
 
     HttpServer::new(move || {
-        let srvc = RemoteMediaService::new_with_auth(
-            "localhost".into(),
-            "8090".into(),
-            "".into(),
-            "foo".into(),
-        );
+        let srvc =
+            RemoteMediaService::new_with_auth("localhost".into(), "8090".into(), "foo".into());
 
         App::new()
             //.wrap(Logger::new("%a %{User-Agent}i"))
@@ -83,7 +83,7 @@ async fn main() -> Result<(), HomeRadioError> {
 
 async fn add_media_source(
     body: Json<MediaSource>,
-    backend: web::Data<Mutex<Box<dyn Backend + Send>>>,
+    backend: web::Data<Mutex<FileBackend>>,
 ) -> impl Responder {
     let result = { backend.lock().unwrap().add_media_source(body.0).await };
     if let Err(e) = result {
@@ -93,14 +93,32 @@ async fn add_media_source(
     HttpResponse::Ok()
 }
 
-async fn get_media_sources(backend: web::Data<Mutex<Box<dyn Backend + Send>>>) -> impl Responder {
-    let media_sources = { backend.lock().unwrap().get_media_sources().await };
-    let media_sources = if let Err(e) = media_sources {
-        error!("{}", e);
-        return HttpResponse::InternalServerError().into();
-    } else {
-        media_sources.unwrap()
+async fn get_media_sources(backend: web::Data<Mutex<FileBackend>>) -> impl Responder {
+    let result = {
+        let backend = backend.lock().unwrap();
+        (
+            backend.get_media_sources().await,
+            backend.get_current_media_source().await,
+        )
     };
+
+    let (mut media_sources, current_source) = match result {
+        (_, Err(e)) | (Err(e), _) => {
+            error!("{}", e);
+            return HttpResponse::InternalServerError().into();
+        }
+        (Ok(media_sources), Ok(current_source)) => (media_sources, current_source),
+    };
+
+    if let Some(current_source) = current_source {
+        for src in media_sources.iter_mut() {
+            if current_source == src.link {
+                src.currently_playing = Some(true)
+            } else {
+                src.currently_playing = None;
+            }
+        }
+    }
 
     HttpResponse::Ok().json(media_sources)
 }
@@ -143,7 +161,7 @@ async fn index_js() -> impl Responder {
 }
 
 async fn set_current_volume(
-    backend: web::Data<Mutex<Box<dyn Backend + Send>>>,
+    backend: web::Data<Mutex<FileBackend>>,
     srvc: web::Data<RemoteMediaService>,
     body: String,
 ) -> impl Responder {
@@ -171,7 +189,7 @@ async fn set_current_volume(
 }
 
 async fn start_playback(
-    backend: web::Data<Mutex<Box<dyn Backend + Send>>>,
+    backend: web::Data<Mutex<FileBackend>>,
     srvc: web::Data<RemoteMediaService>,
     body: String,
 ) -> impl Responder {
@@ -185,26 +203,44 @@ async fn start_playback(
     };
 
     let result = srvc.play(&body, vol).await;
-
     if let Err(e) = result {
         error!("error starting playback of url {}: {}", &body, e);
         HttpResponse::InternalServerError().body(e.to_string())
     } else {
+        let result = {
+            backend
+                .lock()
+                .unwrap()
+                .set_current_media_source(&body)
+                .await
+        };
+        if let Err(e) = result {
+            error!("{}", e);
+        }
         HttpResponse::Ok().into()
     }
 }
 
-async fn stop_playback(srvc: web::Data<RemoteMediaService>) -> impl Responder {
+async fn stop_playback(
+    srvc: web::Data<RemoteMediaService>,
+    backend: web::Data<Mutex<FileBackend>>,
+) -> impl Responder {
+    let result = { backend.lock().unwrap().remove_current_media_source().await };
+    if let Err(e) = result {
+        error!("error removing current playback source: {}", e);
+        return HttpResponse::InternalServerError();
+    }
+
     let result = srvc.stop().await;
     if let Err(e) = result {
-        error!("error stopping playback");
-        HttpResponse::InternalServerError().body(e.to_string())
+        error!("error stopping playback: {}", e);
+        HttpResponse::InternalServerError()
     } else {
-        HttpResponse::Ok().into()
+        HttpResponse::Ok()
     }
 }
 
-async fn get_current_volume(backend: web::Data<Mutex<Box<dyn Backend + Send>>>) -> impl Responder {
+async fn get_current_volume(backend: web::Data<Mutex<FileBackend>>) -> impl Responder {
     let result = { backend.lock().unwrap().get_volume().await };
     match result {
         Err(e) => HttpResponse::InternalServerError().body(e.to_string()),

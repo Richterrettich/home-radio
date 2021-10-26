@@ -2,12 +2,24 @@ window.addEventListener("load", async function () {
     console.log("loading media");
     result = await get("/media");
     media = JSON.parse(result);
+    let default_source = null;
+    let currently_playing = null;
     media.forEach(function (item) {
         console.log(item);
         element = document.createElement("option");
         element.value = item.link;
         element.appendChild(document.createTextNode(item.name));
         document.getElementById("radio_links").appendChild(element);
+        if (item.default_source) {
+            default_source = item;
+            if (currently_playing == null) {
+                element.selected = true;
+            }
+        }
+        if (item.currently_playing) {
+            currently_playing = item;
+            element.selected = true;
+        }
     });
 
     result = await get("/volume");
