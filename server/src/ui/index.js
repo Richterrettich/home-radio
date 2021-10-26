@@ -1,3 +1,5 @@
+var isPlaying = false;
+
 window.addEventListener("load", async function () {
     console.log("loading media");
     result = await get("/media");
@@ -19,6 +21,8 @@ window.addEventListener("load", async function () {
         if (item.currently_playing) {
             currently_playing = item;
             element.selected = true;
+            isPlaying = true;
+            switchButtonState(isPlaying);
         }
     });
 
@@ -32,16 +36,32 @@ window.addEventListener("load", async function () {
 });
 
 
+async function handleMedia() {
+    if (isPlaying) {
+        await stop()
+    } else {
+        await start()
+    }
+}
 
-function start() {
+function switchButtonState(isPlaying) {
+    let button = document.getElementById("playback_button");
+    button.textContent = isPlaying ? "stop" : "start";
+}
+
+async function start() {
     radioUrlsSelect = document.getElementById("radio_links");
     url = radioUrlsSelect.options[radioUrlsSelect.selectedIndex].value;
-    post("/start", url);
+    await post("/start", url);
+    isPlaying = true;
+    switchButtonState(isPlaying);
 }
 
 
-function stop() {
-    post("/stop");
+async function stop() {
+    await post("/stop");
+    isPlaying = false;
+    switchButtonState(isPlaying);
 }
 
 function increaseVolume() {
