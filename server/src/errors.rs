@@ -19,8 +19,6 @@ pub enum HomeRadioError {
     Play,
     #[error("unable to get media stream for url {0}")]
     NoMedia(String),
-    #[error("media channel closed")]
-    ChannelClosed,
 
     #[error(transparent)]
     SendRequestError(#[from] SendRequestError),
