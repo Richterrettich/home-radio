@@ -1,11 +1,9 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::{collections::HashMap, time::Duration};
 
-use tokio::{self};
+use tokio::{self, time::sleep};
 
 use crate::errors::HomeRadioError;
-
-use awc;
 
 #[derive(Clone)]
 pub struct RemoteMediaService {
@@ -67,6 +65,42 @@ impl RemoteMediaService {
         }
 
         Ok(())
+    }
+
+    pub async fn wait_for_healthy(
+        &self,
+        max_retries: u16,
+        sleep_time_millis: u16,
+    ) -> Result<(), HomeRadioError> {
+        let mut current_retries = 0;
+        let duration = Duration::from_millis(sleep_time_millis as u64);
+        loop {
+            if current_retries > max_retries {
+                return Err(HomeRadioError::VLCServerUnhealthy);
+            }
+            if self.check_health().await? {
+                return Ok(());
+            }
+
+            sleep(duration).await;
+            current_retries += 1;
+        }
+    }
+
+    pub async fn check_health(&self) -> Result<bool, HomeRadioError> {
+        let result = self.get_status().await;
+        if result.is_ok() {
+            return Ok(true);
+        }
+        let err = result.err().unwrap();
+        match err {
+            HomeRadioError::SendRequestError(ref _sre) => Ok(false),
+            HomeRadioError::Io(ref io_err) => match io_err.kind() {
+                std::io::ErrorKind::ConnectionRefused => Ok(false),
+                _ => Err(err),
+            },
+            _ => Err(err),
+        }
     }
 
     pub async fn get_status(&self) -> Result<VlcStatus, HomeRadioError> {

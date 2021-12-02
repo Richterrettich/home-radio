@@ -13,12 +13,6 @@ pub enum HomeRadioError {
     Io(#[from] io::Error),
     #[error(transparent)]
     ParseInt(#[from] ParseIntError),
-    #[error("error changeing volume to {0}")]
-    VolumeChange(i32),
-    #[error("error starting playback")]
-    Play,
-    #[error("unable to get media stream for url {0}")]
-    NoMedia(String),
 
     #[error(transparent)]
     SendRequestError(#[from] SendRequestError),
@@ -29,4 +23,7 @@ pub enum HomeRadioError {
     JsonPayloadError(#[from] awc::error::JsonPayloadError),
     #[error(transparent)]
     PayloadError(#[from] awc::error::PayloadError),
+
+    #[error("internal vlc server is unhealthy")]
+    VLCServerUnhealthy,
 }

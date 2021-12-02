@@ -1,4 +1,4 @@
-use std::sync::Mutex;
+use std::{path::Path, sync::Mutex, process::Child};
 
 use actix_web::{
     web::{self, Json},
@@ -8,12 +8,13 @@ use backend::MediaSource;
 use env_logger;
 use errors::HomeRadioError;
 use log::{error, info};
+use media_service::RemoteMediaService;
 
 use crate::{
     backend::FileBackend,
-    media_service::{MediaService, RemoteMediaService},
 };
 mod backend;
+mod cli;
 mod errors;
 mod media_service;
 
@@ -28,22 +29,64 @@ const ANDROID_FAVICON: &[u8] = include_bytes!("./ui/android-chrome-192x192.png")
 
 #[actix_web::main]
 async fn main() -> Result<(), HomeRadioError> {
-    let media_file_path = std::env::args()
-        .skip(1)
-        .next()
-        .unwrap_or_else(|| "/var/lib/home-radio".into());
+    let app = cli::build_app();
+    let matches = app.get_matches();
+
+    match matches.subcommand() {
+        ("serve", Some(args)) => {
+            let dir = args.value_of("dir").unwrap();
+            let autoplay = args.is_present("autoplay");
+            serve(dir, autoplay).await?;
+        }
+        _ => unreachable!(),
+    }
+    Ok(())
+}
+
+struct ProcessCleaner {
+    inner: Child
+}
+
+impl Drop for ProcessCleaner {
+    fn drop(&mut self) {
+        let _err = self.inner.kill();
+    }
+}
+
+async fn serve<A: AsRef<Path>>(dir: A, autoplay: bool) -> Result<(), HomeRadioError> {
     std::env::set_var("RUST_LOG", "debug");
     env_logger::init();
+    let fb = FileBackend::new(dir.as_ref()).await?;
 
-    let fb = FileBackend::new(media_file_path).await?;
-    let current_src = fb.get_current_media_source().await?;
-    if let Some(current) = current_src {
-        let vol = fb.get_volume().await?;
+    let vlc_process = std::process::Command::new("/usr/bin/vlc")
+        .arg("-I")
+        .arg("http")
+        .arg("--http-port")
+        .arg("8090")
+        .arg("--http-password")
+        .arg("foo")
+        .spawn()?;
+    
+    // kill the vlc process when this goes out of scope
+    let _cleaner = ProcessCleaner{inner: vlc_process};
+    let srvc = RemoteMediaService::new_with_auth("localhost".into(), "8090".into(), "foo".into());
+    if autoplay {
+        let current_src = fb.get_current_media_source().await?;
+        srvc.wait_for_healthy(20, 200).await?;
+        if let Some(current) = current_src {
+            let vol = fb.get_volume().await?;
 
-        let srvc =
-            RemoteMediaService::new_with_auth("localhost".into(), "8090".into(), "foo".into());
-        srvc.play(&current, vol).await?;
+            srvc.play(&current, vol).await?;
+        } else {
+            let sources = fb.get_media_sources().await?;
+            let default_source = sources.iter().find(|src| src.default_source);
+            if let Some(src) = default_source {
+                let vol = fb.get_volume().await?;
+                srvc.play(&src.link, vol).await?;
+            }
+        }
     }
+
     let backend = web::Data::new(Mutex::new(fb));
 
     HttpServer::new(move || {
@@ -72,8 +115,6 @@ async fn main() -> Result<(), HomeRadioError> {
             .route("/stop", web::post().to(stop_playback))
             .route("/volume", web::get().to(get_current_volume))
             .route("/volume", web::put().to(set_current_volume))
-            .route("/increase_volume", web::post().to(increase_volume))
-            .route("/decrease_volume", web::post().to(decrease_volume))
     })
     .bind("0.0.0.0:8080")?
     .run()
@@ -247,37 +288,5 @@ async fn get_current_volume(backend: web::Data<Mutex<FileBackend>>) -> impl Resp
         Ok(vol) => HttpResponse::Ok()
             .content_type("text/plain")
             .body(vol.to_string()),
-    }
-}
-
-async fn increase_volume(body: String, srvc: web::Data<Box<dyn MediaService>>) -> impl Responder {
-    let result = body.parse::<u16>();
-    let amount = if let Ok(amount) = result {
-        amount
-    } else {
-        return HttpResponse::BadRequest().body("invalid amount");
-    };
-    let result = srvc.increase_volume(amount as i32);
-
-    if let Err(e) = result {
-        HttpResponse::InternalServerError().body(e.to_string())
-    } else {
-        HttpResponse::Ok().into()
-    }
-}
-
-async fn decrease_volume(body: String, srvc: web::Data<Box<dyn MediaService>>) -> impl Responder {
-    let result = body.parse::<u16>();
-    let amount = if let Ok(amount) = result {
-        amount
-    } else {
-        return HttpResponse::BadRequest().body("invalid amount");
-    };
-    let result = srvc.decrease_volume(amount as i32);
-
-    if let Err(e) = result {
-        HttpResponse::InternalServerError().body(e.to_string())
-    } else {
-        HttpResponse::Ok().into()
     }
 }
