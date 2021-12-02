@@ -45,5 +45,6 @@ class MediaSource {
         this.name = name;
         this.link = link;
         this.media_type = media_type;
+        this.default_source = false;
     }
 }

@@ -60,6 +60,9 @@ impl FileBackend {
         &self,
     ) -> Result<Vec<super::MediaSource>, crate::errors::HomeRadioError> {
         let content = tokio::fs::read_to_string(&self.media_file_path).await?;
+        if content.is_empty() {
+            return Ok(Vec::new());
+        }
         let result = serde_json::from_str(&content)?;
         return Ok(result);
     }
